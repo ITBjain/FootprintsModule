@@ -36,6 +36,7 @@ namespace PegasusFootprintsApi.Controllers
         private object MapToApiResponse(Template t)
         {
             JsonNode? slotsNode = null;
+            JsonNode? pagesNode = null;
             int width = 1080;
             int height = 1920;
 
@@ -43,14 +44,42 @@ namespace PegasusFootprintsApi.Controllers
             {
                 try 
                 {
-                    // JsonDocument has RootElement
+                    // Parse the JSON stored in the database
                     var rootNode = JsonNode.Parse(t.ConfigJson.RootElement.GetRawText());
+                    
+                    // 1. CRITICAL FIX: Check for "pages" array (Multi-Page Support)
+                    pagesNode = rootNode?["pages"];
+
+                    // 2. Check for "slots" array (Legacy Single-Page Support)
                     slotsNode = rootNode?["slots"];
                     
                     if (rootNode?["canvas_width"] != null) width = (int)rootNode["canvas_width"];
                     if (rootNode?["canvas_height"] != null) height = (int)rootNode["canvas_height"];
                 }
                 catch { }
+            }
+
+            // LOGIC: Use 'pages' if available. Otherwise, wrap legacy 'slots' into Page 1.
+            object finalPagesData;
+
+            if (pagesNode != null)
+            {
+                // PASSTHROUGH: Send the multi-page array directly to Android
+                finalPagesData = pagesNode;
+            }
+            else
+            {
+                // FALLBACK: Wrap old data into a single page so it still works
+                finalPagesData = new[]
+                {
+                    new
+                    {
+                        page_num = 1,
+                        bg_url = t.BaseImageUrl ?? "",
+                        overlay_url = t.OverlayImageUrl ?? "",
+                        slots = slotsNode ?? new JsonArray()
+                    }
+                };
             }
 
             return new
@@ -63,16 +92,7 @@ namespace PegasusFootprintsApi.Controllers
                 {
                     base_width = width,
                     base_height = height,
-                    pages = new[]
-                    {
-                        new
-                        {
-                            page_num = 1,
-                            bg_url = t.BaseImageUrl ?? "",
-                            overlay_url = t.OverlayImageUrl ?? "",
-                            slots = slotsNode ?? new JsonArray()
-                        }
-                    }
+                    pages = finalPagesData
                 }
             };
         }
